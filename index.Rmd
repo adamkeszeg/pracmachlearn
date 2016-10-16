@@ -1,0 +1,62 @@
+---
+title: "pracmachlearn"
+author: "Adam Keszeg"
+date: '2016 october 16'
+output: html_document
+---
+
+In this document I'm going to detail the project work to create a machine learning algorithm that will predict how well did participants do their activity with the use of the Weight Lifting Exercise Dataset. 
+
+```{r gettin and cleaning data, echo=FALSE}
+suppressMessages(library(caret))
+suppressMessages(library(kernlab))
+test_data <- read.csv("pml-testing.csv", na.strings = c("","NA","NULL"))
+train_data <- read.csv("pml-training.csv", na.strings = c("", "NA", "NULL"))
+training_data <- train_data[, colSums(is.na(train_data))==0]
+unwanted <- c('X','user_name','raw_timestamp_part_1', 'raw_timestamp_part_2', 'cvtd_timestamp', 'new_window','num_window')
+training_wanted <- training_data[, -which(names(training_data) %in% unwanted)]
+set.seed(13343)
+```
+
+The dataset has 60 variables, first it had to be trimmed down. I removed the ones that probably wouldn't add to the model (for instances "user" variable), and went on to check the correlation of the remaining variables:
+
+```{r corr calc, echo=FALSE}
+corrMartix <- cor(na.omit(training_wanted[sapply(training_wanted, is.numeric)]))
+corrMat = expand.grid(row=1:52, col=1:52)
+corrMat$correlation = as.vector(corrMartix)
+levelplot(correlation ~ row+col, corrMat)
+```
+
+It is pretty clear that a handful of the variables are strongly correlated with each other, so I removed the ones with correlation above 80%. At the end 40 variables remained in the dataset. The observations were split into a training and testing dataset for cross validation.
+
+Next I fit a tree on these data for examination. It showed that with this 11 variables the misclassification error rate is ~0.35. 
+
+```{r remove correlated var, echo=FALSE}
+removecor = findCorrelation(corrMartix, cutoff = .8, verbose = FALSE)
+training_withoutcor = training_wanted[,-removecor]
+inTrain = createDataPartition(y=training_withoutcor$classe, p=0.7, list=FALSE)
+ttrain = training_withoutcor[inTrain,]
+ttest = training_withoutcor[-inTrain,]
+library(tree)
+tree_1 =tree(classe~.,data=ttrain)
+summary(tree_1)
+plot(tree_1)
+text(tree_1)
+```
+
+Thereafter I called on a random forest function to get more trees automatically built and tested. The following are the summary of the returns. It shows that only 6 predictors were used and that the estimate of out-of-bag error rate is marginally higher than 1% and the confusion matrix is also looking very good.
+
+```{r random forest, echo=FALSE}
+suppressMessages(library(randomForest))
+rf_model=randomForest(classe~., data=ttrain, ntree=50)
+rf_model
+```
+
+I tested it against the observations set aside for cross validation, the accuracy was: 
+```{r cross validation, echo=FALSE}
+tree_prediction=predict(rf_model, ttest)
+predictionMatrix = with(ttest, table(tree_prediction, classe))
+sum(diag(predictionMatrix))/sum(as.vector(predictionMatrix))
+```
+
+The ~99% accuracy meant that the random forest model was very accurate, thus I used this model for the prediction of the answers that were going to be submitted for grading. 
